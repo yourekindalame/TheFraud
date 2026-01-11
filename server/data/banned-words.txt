@@ -1,0 +1,18 @@
+# Minimal MVP blocklist (case-insensitive).
+# Replace/extend with your own Twitch/TikTok TOS blocklist as needed.
+sex
+porn
+nsfw
+nude
+drug
+cocaine
+heroin
+suicide
+kill
+murder
+rape
+nazi
+hitler
+terror
+terrorist
+

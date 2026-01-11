@@ -1,0 +1,89 @@
+{
+  "categories": [
+    {
+      "id": "movies",
+      "name": "Movies 🎬",
+      "icon": "🎬",
+      "boards": [
+        {
+          "name": "Popcorn Night",
+          "clues16": [
+            "Sequel",
+            "Plot twist",
+            "Soundtrack",
+            "Villain",
+            "Hero",
+            "Romance",
+            "Explosion",
+            "Chase",
+            "Dialogue",
+            "Credits",
+            "Oscar",
+            "Comedy",
+            "Horror",
+            "Sci‑fi",
+            "Trailer",
+            "Cameo"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "food",
+      "name": "Food 🍔",
+      "icon": "🍔",
+      "boards": [
+        {
+          "name": "Kitchen Chaos",
+          "clues16": [
+            "Spicy",
+            "Crunchy",
+            "Savory",
+            "Sweet",
+            "Sour",
+            "Umami",
+            "Grilled",
+            "Fried",
+            "Baked",
+            "Sauce",
+            "Cheesy",
+            "Fresh",
+            "Comfort",
+            "Street",
+            "Dessert",
+            "Snack"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "travel",
+      "name": "Travel ✈️",
+      "icon": "✈️",
+      "boards": [
+        {
+          "name": "Airport Mode",
+          "clues16": [
+            "Passport",
+            "Gate",
+            "Carry‑on",
+            "Window seat",
+            "Jet lag",
+            "Souvenir",
+            "Map",
+            "Hotel",
+            "Beach",
+            "Mountain",
+            "Museum",
+            "Tour",
+            "Currency",
+            "Customs",
+            "Postcard",
+            "Detour"
+          ]
+        }
+      ]
+    }
+  ]
+}
+
