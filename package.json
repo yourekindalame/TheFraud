@@ -4,12 +4,12 @@
   "version": "0.1.0",
   "description": "The Fraud - realtime multiplayer deduction game (Express + Socket.IO + React)",
   "scripts": {
-    "setup": "npm install && npm --prefix server install && npm --prefix client install",
-    "dev": "concurrently -n server,client -c cyan,magenta \"npm --prefix server run dev\" \"npm --prefix client run dev\"",
-    "build": "npm --prefix client run build && npm --prefix server run build",
-    "start": "npm --prefix server start",
-    "lint": "npm --prefix client run lint && npm --prefix server run lint",
-    "typecheck": "npm --prefix client run typecheck"
+    "setup": "npm install && npm -C server install && npm -C client install",
+    "dev": "concurrently -n server,client -c cyan,magenta \"npm -C server run dev\" \"npm -C client run dev\"",
+    "build": "npm -C client run build && npm -C server run build",
+    "start": "npm -C server start",
+    "lint": "npm -C client run lint && npm -C server run lint",
+    "typecheck": "npm -C client run typecheck"
   },
   "devDependencies": {
     "concurrently": "^9.2.1"
