@@ -217,11 +217,9 @@ function LobbySetup({ lobbyId, isHost, players }: { lobbyId: string; isHost: boo
             return (
               <label
                 key={c.id}
-                className="categoryBtn"
+                className={`categoryBtn ${selected ? "categoryBtnSelected" : ""} ${!isHost ? "categoryBtnDisabled" : ""}`}
                 style={{
-                  cursor: isHost ? "pointer" : "default",
-                  outline: selected ? "2px solid rgba(34,197,94,0.65)" : undefined,
-                  opacity: isHost ? 1 : 0.6
+                  cursor: isHost ? "pointer" : "default"
                 }}
               >
                 <input
@@ -252,11 +250,9 @@ function LobbySetup({ lobbyId, isHost, players }: { lobbyId: string; isHost: boo
             return (
               <label
                 key={c.id}
-                className="categoryBtn"
+                className={`categoryBtn ${selected ? "categoryBtnSelected" : ""} ${!isHost ? "categoryBtnDisabled" : ""}`}
                 style={{
-                  cursor: isHost ? "pointer" : "default",
-                  outline: selected ? "2px solid rgba(34,197,94,0.65)" : undefined,
-                  opacity: isHost ? 1 : 0.6
+                  cursor: isHost ? "pointer" : "default"
                 }}
               >
                 <input

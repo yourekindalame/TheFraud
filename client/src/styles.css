@@ -105,7 +105,7 @@ textarea {
 }
 
 .panelPad {
-  padding: 14px;
+  padding: 16px;
 }
 
 .btn {
@@ -132,8 +132,15 @@ textarea {
 }
 
 .btnSuccess {
-  background: rgba(34, 197, 94, 0.14);
-  border-color: rgba(34, 197, 94, 0.3);
+  background: rgba(34, 197, 94, 0.18);
+  border-color: rgba(34, 197, 94, 0.4);
+  color: white;
+  font-weight: 600;
+}
+
+.btnSuccess:hover:not(:disabled) {
+  background: rgba(34, 197, 94, 0.25);
+  box-shadow: 0 4px 12px rgba(34, 197, 94, 0.2);
 }
 
 .btnWide {
@@ -210,7 +217,7 @@ textarea {
 .categoryGrid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px;
+  gap: 12px;
 }
 
 @media (min-width: 520px) {
@@ -219,22 +226,62 @@ textarea {
   }
 }
 
+@media (min-width: 900px) {
+  .categoryGrid {
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+  }
+}
+
 .categoryBtn {
+  position: relative;
   text-align: left;
-  padding: 12px 12px;
+  padding: 16px 14px;
   border-radius: 16px;
-  border: 1px solid var(--border);
-  background: linear-gradient(135deg, rgba(124, 58, 237, 0.22), rgba(34, 197, 94, 0.12));
+  border: 2px solid transparent;
+  background: linear-gradient(135deg, rgba(124, 58, 237, 0.28), rgba(236, 72, 153, 0.18));
   cursor: pointer;
+  transition: all 0.2s ease;
+  min-height: 90px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+}
+
+.categoryBtn:hover:not([disabled]) {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.3);
+  border-color: rgba(255, 255, 255, 0.2);
+}
+
+.categoryBtn:active:not([disabled]) {
+  transform: translateY(0);
 }
 
 .categoryBtn[disabled] {
-  opacity: 0.6;
+  opacity: 0.5;
   cursor: not-allowed;
+  filter: grayscale(0.3);
+}
+
+.categoryBtnSelected {
+  border-color: rgba(34, 197, 94, 0.6) !important;
+  background: linear-gradient(135deg, rgba(124, 58, 237, 0.35), rgba(34, 197, 94, 0.25)) !important;
+  box-shadow: 0 0 0 3px rgba(34, 197, 94, 0.2), 0 4px 12px rgba(0, 0, 0, 0.2) !important;
+}
+
+.categoryBtnDisabled {
+  opacity: 0.5 !important;
+  filter: grayscale(0.3);
 }
 
 .categoryTitle {
   font-weight: 800;
+  font-size: 15px;
+  line-height: 1.4;
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
 .board {
