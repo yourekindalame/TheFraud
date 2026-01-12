@@ -12,9 +12,11 @@ export type GameStartedPayload = {
 
 export type VoteStatePayload = {
   lobbyId: string;
-  votesByVoterId: Record<string, string>;
-  voteCountsByTargetId: Record<string, number>;
-  allSubmittedBoolean: boolean;
+  votesByVoterId?: Record<string, string>;
+  voteCountsByTargetId?: Record<string, number>;
+  allSubmittedBoolean?: boolean;
+  voteToStartCount?: number;
+  voteToStartRequired?: number;
 };
 
 export type AppStore = {

@@ -115,19 +115,49 @@ function isHost(lobby, playerId) {
 }
 
 function endRoundToLobby(lobby, reason, nextRoundInfo) {
-  lobby.gameState = {
-    phase: "lobby",
-    roundId: null,
-    categoryId: null,
-    categoryName: null,
-    clueBoard16: null,
-    secretIndex: null,
-    fraudIds: [],
-    votesByVoterId: {},
-    lastVoteResult: { reason: reason || "round_ended" }
-  };
+  // Check if someone won (10 points)
+  const leaderboard = getLeaderboard(lobby);
+  const winner = leaderboard.find((p) => p.points >= 10);
+  
+  if (winner) {
+    // Game over - someone reached 10 points
+    lobby.gameState = {
+      phase: "lobby",
+      roundId: null,
+      categoryId: null,
+      categoryName: null,
+      clueBoard16: null,
+      secretIndex: null,
+      fraudIds: [],
+      votesByVoterId: {},
+      voteToStartVoterIds: new Set(),
+      lastVoteResult: { reason: "game_won", winner: { playerId: winner.playerId, name: winner.name, points: winner.points } }
+    };
+    emitLobbyState(lobby);
+    io.to(lobby.lobbyId).emit("ROUND_ENDED", { lobbyId: lobby.lobbyId, nextRoundInfo: { gameWon: true, winner } });
+    io.to(lobby.lobbyId).emit("SCORE_UPDATE", { lobbyId: lobby.lobbyId, leaderboard: getLeaderboard(lobby) });
+    return;
+  }
+  
+  // Continue automatically - start new round
+  const gs = startGameRound(lobby);
+  
+  // Broadcast per-player GAME_STARTED without leaking secret to frauds
+  for (const p of lobby.players) {
+    if (!p.connected || !p.socketId) continue;
+    const isFraud = (gs.fraudIds || []).includes(p.id);
+    io.to(p.socketId).emit("GAME_STARTED", {
+      lobbyId: lobby.lobbyId,
+      roundId: gs.roundId,
+      category: gs.categoryName,
+      clueBoard16: gs.clueBoard16,
+      visibleSecretForPlayer: !isFraud,
+      ...(isFraud ? {} : { secretIndexIfAllowed: gs.secretIndex })
+    });
+  }
+  
+  // Everyone gets updated lobby state + scoreboard
   emitLobbyState(lobby);
-  io.to(lobby.lobbyId).emit("ROUND_ENDED", { lobbyId: lobby.lobbyId, nextRoundInfo: nextRoundInfo || null });
   io.to(lobby.lobbyId).emit("SCORE_UPDATE", { lobbyId: lobby.lobbyId, leaderboard: getLeaderboard(lobby) });
 }
 
@@ -156,6 +186,42 @@ function finishVoting(lobby, endedEarly) {
   // Fraud survived: allow final guess.
   lobby.gameState.phase = "fraud_guess";
   emitLobbyState(lobby);
+}
+
+function checkForGameEnd(lobby) {
+  const leaderboard = getLeaderboard(lobby);
+  const winner = leaderboard.find((p) => p.points >= 10);
+  return winner;
+}
+
+function continueOrEndRound(lobby, reason, nextRoundInfo) {
+  const winner = checkForGameEnd(lobby);
+  if (winner) {
+    // Game over - someone reached 10 points
+    endRoundToLobby(lobby, "game_won", { winner: { playerId: winner.playerId, name: winner.name, points: winner.points } });
+    return;
+  }
+  
+  // Continue automatically - start new round
+  const gs = startGameRound(lobby);
+  
+  // Broadcast per-player GAME_STARTED without leaking secret to frauds
+  for (const p of lobby.players) {
+    if (!p.connected || !p.socketId) continue;
+    const isFraud = (gs.fraudIds || []).includes(p.id);
+    io.to(p.socketId).emit("GAME_STARTED", {
+      lobbyId: lobby.lobbyId,
+      roundId: gs.roundId,
+      category: gs.categoryName,
+      clueBoard16: gs.clueBoard16,
+      visibleSecretForPlayer: !isFraud,
+      ...(isFraud ? {} : { secretIndexIfAllowed: gs.secretIndex })
+    });
+  }
+  
+  // Everyone gets updated lobby state + scoreboard
+  emitLobbyState(lobby);
+  io.to(lobby.lobbyId).emit("SCORE_UPDATE", { lobbyId: lobby.lobbyId, leaderboard: getLeaderboard(lobby) });
 }
 
 io.on("connection", (socket) => {
@@ -367,6 +433,48 @@ io.on("connection", (socket) => {
     if (voteState.allSubmittedBoolean) finishVoting(lobby, false);
   });
 
+  socket.on("VOTE_TO_START_VOTING", (_payload, ack) => {
+    const ctx = requireMembership(socket);
+    if (!ctx) return;
+    const { lobby, membership } = ctx;
+    if (lobby.gameState.phase !== "clues") {
+      emitError(socket, "BAD_PHASE", "Voting can only start after the round starts.");
+      if (typeof ack === "function") ack({ ok: false, error: "Bad phase." });
+      return;
+    }
+    
+    // Initialize voteToStartVoterIds if not exists
+    if (!lobby.gameState.voteToStartVoterIds) {
+      lobby.gameState.voteToStartVoterIds = new Set();
+    }
+    
+    // Add player's vote
+    lobby.gameState.voteToStartVoterIds.add(membership.playerId);
+    
+    // Check if enough players voted (50% or more)
+    const connectedPlayers = lobby.players.filter((p) => p.connected);
+    const voteCount = lobby.gameState.voteToStartVoterIds.size;
+    const requiredVotes = Math.ceil(connectedPlayers.length * 0.5);
+    
+    // Broadcast vote state
+    io.to(lobby.lobbyId).emit("VOTE_STATE", {
+      lobbyId: lobby.lobbyId,
+      voteToStartCount: voteCount,
+      voteToStartRequired: requiredVotes
+    });
+    
+    if (typeof ack === "function") ack({ ok: true, voteCount, requiredVotes });
+    
+    // Start voting if threshold reached
+    if (voteCount >= requiredVotes) {
+      lobby.gameState.phase = "voting";
+      lobby.gameState.votesByVoterId = {};
+      lobby.gameState.voteToStartVoterIds = new Set();
+      emitLobbyState(lobby);
+      io.to(lobby.lobbyId).emit("VOTE_STATE", { lobbyId: lobby.lobbyId, ...computeVoteState(lobby) });
+    }
+  });
+
   socket.on("VOTING_START", (_payload, ack) => {
     const ctx = requireMembership(socket);
     if (!ctx) return;
@@ -383,6 +491,9 @@ io.on("connection", (socket) => {
     }
     lobby.gameState.phase = "voting";
     lobby.gameState.votesByVoterId = {};
+    if (lobby.gameState.voteToStartVoterIds) {
+      lobby.gameState.voteToStartVoterIds = new Set();
+    }
     emitLobbyState(lobby);
     io.to(lobby.lobbyId).emit("VOTE_STATE", { lobbyId: lobby.lobbyId, ...computeVoteState(lobby) });
     if (typeof ack === "function") ack({ ok: true });

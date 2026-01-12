@@ -129,19 +129,21 @@ export default function LobbyPage() {
                 <strong>{players.find((p) => p.id === lobby.hostPlayerId)?.name || "—"}</strong>
               </span>
             </div>
-            <div className="muted" style={{ marginTop: 10 }}>
-              Invite link:{" "}
-              <span className="pill">
-                <code>{`${window.location.origin}/lobby/${lobby.lobbyId}`}</code>
-                <button
-                  className="btn"
-                  style={{ padding: "6px 10px", borderRadius: 999 }}
-                  onClick={() => navigator.clipboard.writeText(`${window.location.origin}/lobby/${lobby.lobbyId}`)}
-                >
-                  Copy
-                </button>
-              </span>
-            </div>
+            {revealCode && (
+              <div className="muted" style={{ marginTop: 10 }}>
+                Invite link:{" "}
+                <span className="pill">
+                  <code>{`${window.location.origin}/lobby/${lobby.lobbyId}`}</code>
+                  <button
+                    className="btn"
+                    style={{ padding: "6px 10px", borderRadius: 999 }}
+                    onClick={() => navigator.clipboard.writeText(`${window.location.origin}/lobby/${lobby.lobbyId}`)}
+                  >
+                    Copy
+                  </button>
+                </span>
+              </div>
+            )}
           </div>
 
           <button
@@ -189,40 +191,142 @@ function LobbySetup({ lobbyId, isHost, players }: { lobbyId: string; isHost: boo
 
   const [imposterCount, setImposterCount] = useState<number>(store.lobbyState?.settings.imposterCount || 1);
   const [randomize, setRandomize] = useState<boolean>(store.lobbyState?.settings.randomizeImposterCount || false);
-  const [newHostId, setNewHostId] = useState<string>("");
+  const [anonymousVoting, setAnonymousVoting] = useState<boolean>(store.lobbyState?.settings.anonymousVoting || false);
+  const [newCustomCategoryName, setNewCustomCategoryName] = useState<string>("");
+  const [newCustomCategoryIcon, setNewCustomCategoryIcon] = useState<string>("🎯");
+
+  const selectedCategories = store.lobbyState?.settings.categories || ["movies"];
+  const customCategories = store.lobbyState?.settings.customCategories || [];
 
   useEffect(() => {
     setImposterCount(store.lobbyState?.settings.imposterCount || 1);
     setRandomize(store.lobbyState?.settings.randomizeImposterCount || false);
-  }, [store.lobbyState?.settings.imposterCount, store.lobbyState?.settings.randomizeImposterCount]);
+    setAnonymousVoting(store.lobbyState?.settings.anonymousVoting || false);
+  }, [store.lobbyState?.settings.imposterCount, store.lobbyState?.settings.randomizeImposterCount, store.lobbyState?.settings.anonymousVoting]);
 
   return (
     <div style={{ marginTop: 14, display: "flex", flexDirection: "column", gap: 12 }}>
       <div className="panel panelPad" style={{ background: "rgba(255,255,255,0.04)" }}>
         <div style={{ fontWeight: 900, marginBottom: 10 }}>Categories</div>
         <div className="muted" style={{ marginBottom: 10 }}>
-          Big shiny buttons (future upsell). Only the host can select.
+          Select multiple categories (at least 1 required). Game randomly selects one each round.
         </div>
         <div className="categoryGrid">
           {store.categories.map((c) => {
-            const selected = store.lobbyState?.settings.category === c.id;
+            const selected = selectedCategories.includes(c.id);
             return (
-              <button
+              <label
                 key={c.id}
                 className="categoryBtn"
-                disabled={!isHost}
-                onClick={() => socket.emit("SETTINGS_UPDATE", { lobbyId, partialSettings: { category: c.id } })}
-                style={selected ? { outline: "2px solid rgba(34,197,94,0.65)" } : undefined}
+                style={{
+                  cursor: isHost ? "pointer" : "default",
+                  outline: selected ? "2px solid rgba(34,197,94,0.65)" : undefined,
+                  opacity: isHost ? 1 : 0.6
+                }}
               >
+                <input
+                  type="checkbox"
+                  checked={selected}
+                  disabled={!isHost}
+                  style={{ display: "none" }}
+                  onChange={() => {
+                    if (!isHost) return;
+                    const newCategories = selected
+                      ? selectedCategories.filter((id) => id !== c.id)
+                      : [...selectedCategories, c.id];
+                    if (newCategories.length === 0) return; // Must have at least 1
+                    socket.emit("SETTINGS_UPDATE", { lobbyId, partialSettings: { categories: newCategories } });
+                  }}
+                />
                 <div className="categoryTitle">
                   {c.icon} {c.name}
                 </div>
                 <div className="muted" style={{ fontSize: 12, marginTop: 6 }}>
-                  {selected ? "Selected" : "Tap to select"}
+                  {selected ? "Selected" : "Click to select"}
                 </div>
-              </button>
+              </label>
             );
           })}
+          {customCategories.map((c) => {
+            const selected = selectedCategories.includes(c.id);
+            return (
+              <label
+                key={c.id}
+                className="categoryBtn"
+                style={{
+                  cursor: isHost ? "pointer" : "default",
+                  outline: selected ? "2px solid rgba(34,197,94,0.65)" : undefined,
+                  opacity: isHost ? 1 : 0.6
+                }}
+              >
+                <input
+                  type="checkbox"
+                  checked={selected}
+                  disabled={!isHost}
+                  style={{ display: "none" }}
+                  onChange={() => {
+                    if (!isHost) return;
+                    const newCategories = selected
+                      ? selectedCategories.filter((id) => id !== c.id)
+                      : [...selectedCategories, c.id];
+                    if (newCategories.length === 0) return; // Must have at least 1
+                    socket.emit("SETTINGS_UPDATE", { lobbyId, partialSettings: { categories: newCategories } });
+                  }}
+                />
+                <div className="categoryTitle">
+                  {c.icon} {c.name}
+                </div>
+                <div className="muted" style={{ fontSize: 12, marginTop: 6 }}>
+                  {selected ? "Selected" : "Click to select"}
+                </div>
+              </label>
+            );
+          })}
+        </div>
+        <div style={{ marginTop: 12 }}>
+          <div className="muted" style={{ fontSize: 12, marginBottom: 6 }}>
+            Create custom category (you'll need to provide 16 clues)
+          </div>
+          <div className="row" style={{ gap: 8 }}>
+            <input
+              className="input"
+              style={{ flex: 1 }}
+              placeholder="Category name"
+              value={newCustomCategoryName}
+              disabled={!isHost}
+              onChange={(e) => setNewCustomCategoryName(e.target.value)}
+            />
+            <input
+              className="input"
+              style={{ width: 60 }}
+              placeholder="🎯"
+              value={newCustomCategoryIcon}
+              disabled={!isHost}
+              onChange={(e) => setNewCustomCategoryIcon(e.target.value)}
+            />
+            <button
+              className="btn"
+              disabled={!isHost || !newCustomCategoryName.trim()}
+              onClick={() => {
+                if (!isHost || !newCustomCategoryName.trim()) return;
+                const newCustom = {
+                  id: `custom_${Date.now()}`,
+                  name: newCustomCategoryName.trim(),
+                  icon: newCustomCategoryIcon.trim() || "🎯",
+                  boards: [{ name: "Custom", clues16: Array(16).fill("Clue") }]
+                };
+                const updatedCustom = [...customCategories, newCustom];
+                socket.emit("SETTINGS_UPDATE", {
+                  lobbyId,
+                  partialSettings: { customCategories: updatedCustom, categories: [...selectedCategories, newCustom.id] }
+                });
+                setNewCustomCategoryName("");
+                setNewCustomCategoryIcon("🎯");
+              }}
+            >
+              Add
+            </button>
+          </div>
         </div>
       </div>
 
@@ -265,6 +369,22 @@ function LobbySetup({ lobbyId, isHost, players }: { lobbyId: string; isHost: boo
         </div>
 
         <div className="row" style={{ marginTop: 12 }}>
+          <label className="muted" style={{ fontSize: 12, display: "flex", alignItems: "center", gap: 8 }}>
+            <input
+              type="checkbox"
+              checked={anonymousVoting}
+              disabled={!isHost}
+              onChange={(e) => {
+                const v = e.target.checked;
+                setAnonymousVoting(v);
+                if (isHost) socket.emit("SETTINGS_UPDATE", { lobbyId, partialSettings: { anonymousVoting: v } });
+              }}
+            />
+            Anonymous voting (hide player names during voting)
+          </label>
+        </div>
+
+        <div className="row" style={{ marginTop: 12 }}>
           <button className="btn btnPrimary" disabled={!isHost} onClick={() => socket.emit("GAME_START", { lobbyId })}>
             Start Game (works with 0+ players)
           </button>
@@ -277,7 +397,17 @@ function LobbySetup({ lobbyId, isHost, players }: { lobbyId: string; isHost: boo
           {players.map((p) => (
             <div key={p.id} className="panel panelPad" style={{ background: "rgba(255,255,255,0.03)" }}>
               <div className="row" style={{ justifyContent: "space-between" }}>
-                <div>
+                <div
+                  style={{
+                    cursor: isHost && p.id !== store.clientPlayerId ? "pointer" : "default",
+                    textDecoration: isHost && p.id !== store.clientPlayerId ? "underline" : "none"
+                  }}
+                  onClick={() => {
+                    if (isHost && p.id !== store.clientPlayerId) {
+                      socket.emit("HOST_TRANSFER", { lobbyId, newHostPlayerId: p.id });
+                    }
+                  }}
+                >
                   <strong>{p.name}</strong> <span className="muted">· {p.connected ? "online" : "offline"}</span>
                 </div>
                 <div className="muted" style={{ fontSize: 12 }}>
@@ -291,29 +421,7 @@ function LobbySetup({ lobbyId, isHost, players }: { lobbyId: string; isHost: boo
         {isHost && players.length > 1 && (
           <div style={{ marginTop: 12 }}>
             <div className="muted" style={{ fontSize: 12, marginBottom: 6 }}>
-              Transfer host
-            </div>
-            <div className="row">
-              <select className="input" style={{ flex: 1, minWidth: 220 }} value={newHostId} onChange={(e) => setNewHostId(e.target.value)}>
-                <option value="">Select player…</option>
-                {players
-                  .filter((p) => p.id !== store.clientPlayerId)
-                  .map((p) => (
-                    <option key={p.id} value={p.id}>
-                      {p.name}
-                    </option>
-                  ))}
-              </select>
-              <button
-                className="btn"
-                disabled={!newHostId}
-                onClick={() => {
-                  socket.emit("HOST_TRANSFER", { lobbyId, newHostPlayerId: newHostId });
-                  setNewHostId("");
-                }}
-              >
-                Transfer
-              </button>
+              Click a player name to transfer host
             </div>
           </div>
         )}
@@ -330,6 +438,7 @@ function GameView({ lobbyId, isHost, players }: { lobbyId: string; isHost: boole
   const started = store.gameStarted;
   const [chatDraft, setChatDraft] = useState("");
   const [fraudGuessIndex, setFraudGuessIndex] = useState<number | null>(null);
+  const [voteInput, setVoteInput] = useState<string>("");
 
   const isDetective = started ? started.visibleSecretForPlayer : false;
   const secretIndex = started?.secretIndexIfAllowed;
@@ -337,6 +446,7 @@ function GameView({ lobbyId, isHost, players }: { lobbyId: string; isHost: boole
 
   const me = players.find((p) => p.id === store.clientPlayerId);
   const votedFor = store.voteState?.votesByVoterId?.[store.clientPlayerId] || "";
+  const anonymousVoting = store.lobbyState?.settings.anonymousVoting || false;
 
   return (
     <div style={{ marginTop: 14, display: "flex", flexDirection: "column", gap: 12 }}>
@@ -384,15 +494,16 @@ function GameView({ lobbyId, isHost, players }: { lobbyId: string; isHost: boole
         <div className="panel panelPad" style={{ background: "rgba(255,255,255,0.04)" }}>
           <div style={{ fontWeight: 900, marginBottom: 8 }}>Give clues (chat)</div>
           <div className="muted" style={{ marginBottom: 10 }}>
-            Detectives see the highlighted clue. Frauds don’t.
+            Detectives see the highlighted clue. Frauds don't.
           </div>
-          {isHost ? (
-            <button className="btn btnPrimary" onClick={() => socket.emit("VOTING_START", { lobbyId })}>
-              Begin Voting
+          <div className="row" style={{ gap: 8 }}>
+            <button className="btn btnPrimary" onClick={() => socket.emit("VOTE_TO_START_VOTING", { lobbyId })}>
+              Vote to Start Voting
             </button>
-          ) : (
-            <div className="muted">Waiting for the host to begin voting…</div>
-          )}
+            <div className="muted" style={{ fontSize: 12, display: "flex", alignItems: "center" }}>
+              {store.voteState?.voteToStartCount || 0} / {store.voteState?.voteToStartRequired || Math.ceil(players.length * 0.5)} votes
+            </div>
+          </div>
         </div>
       )}
 
@@ -412,19 +523,67 @@ function GameView({ lobbyId, isHost, players }: { lobbyId: string; isHost: boole
             )}
           </div>
 
-          <div style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 10 }}>
-            {players.map((p) => (
+          <div style={{ marginTop: 10 }}>
+            <label className="muted" style={{ fontSize: 12, marginBottom: 6, display: "block" }}>
+              Type the name of who you think is The Fraud:
+            </label>
+            <div className="row" style={{ gap: 8 }}>
+              <input
+                className="input"
+                style={{ flex: 1 }}
+                value={voteInput}
+                onChange={(e) => setVoteInput(e.target.value)}
+                placeholder="Player name"
+                list="player-list"
+              />
+              <datalist id="player-list">
+                {players.map((p) => (
+                  <option key={p.id} value={p.name} />
+                ))}
+              </datalist>
               <button
-                key={p.id}
-                className={`btn ${votedFor === p.id ? "btnPrimary" : ""}`}
-                onClick={() => socket.emit("VOTE_SUBMIT", { lobbyId, targetPlayerId: p.id })}
+                className="btn btnPrimary"
+                disabled={!voteInput.trim()}
+                onClick={() => {
+                  const targetPlayer = players.find((p) => p.name.toLowerCase() === voteInput.trim().toLowerCase());
+                  if (targetPlayer) {
+                    socket.emit("VOTE_SUBMIT", { lobbyId, targetPlayerId: targetPlayer.id });
+                    setVoteInput("");
+                  }
+                }}
               >
-                Vote: {p.name}{" "}
-                <span className="muted" style={{ marginLeft: 10 }}>
-                  {store.voteState?.voteCountsByTargetId?.[p.id] ? `(${store.voteState.voteCountsByTargetId[p.id]})` : ""}
-                </span>
+                Submit Vote
               </button>
-            ))}
+            </div>
+          </div>
+
+          <div style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 12 }}>
+            {players.map((p) => {
+              const voteCount = store.voteState?.voteCountsByTargetId?.[p.id] || 0;
+              const voters = anonymousVoting
+                ? []
+                : Object.entries(store.voteState?.votesByVoterId || {})
+                    .filter(([, targetId]) => targetId === p.id)
+                    .map(([voterId]) => players.find((pl) => pl.id === voterId)?.name)
+                    .filter(Boolean);
+              return (
+                <div key={p.id} className="panel panelPad" style={{ background: "rgba(255,255,255,0.03)" }}>
+                  <div className="row" style={{ justifyContent: "space-between", alignItems: "center" }}>
+                    <div>
+                      <strong>{p.name}</strong>
+                      {voters.length > 0 && (
+                        <span className="muted" style={{ marginLeft: 8, fontSize: 12 }}>
+                          ({voters.join(", ")})
+                        </span>
+                      )}
+                    </div>
+                    <div className="pill">
+                      <strong>{voteCount}</strong> <span className="muted">vote{voteCount !== 1 ? "s" : ""}</span>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
           </div>
 
           <div className="muted" style={{ marginTop: 10, fontSize: 12 }}>

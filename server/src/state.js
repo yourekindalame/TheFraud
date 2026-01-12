@@ -65,9 +65,11 @@ function validateLobbyName(lobbyName) {
 
 function defaultSettings() {
   return {
-    category: "movies",
+    categories: ["movies"],
+    customCategories: [],
     imposterCount: 1,
     randomizeImposterCount: false,
+    anonymousVoting: false,
     fraudNeverGoesFirst: false,
     timeLimitEnabled: false,
     timeLimitSeconds: 60
@@ -146,7 +148,35 @@ function getAllCategories() {
 }
 
 function startGameRound(lobby) {
-  const category = getCategoryById(lobby.settings.category) || CLUES.categories[0];
+  // Support multiple categories - randomly select one
+  const selectedCategoryIds = lobby.settings.categories || [];
+  if (selectedCategoryIds.length === 0) {
+    selectedCategoryIds.push("movies"); // fallback
+  }
+  
+  // Try to pick from selected categories (mix of built-in and custom)
+  let category = null;
+  const allCategoryIds = [...selectedCategoryIds];
+  
+  // Pick a random category ID
+  const selectedId = pickRandom(allCategoryIds);
+  
+  // First try built-in categories
+  category = getCategoryById(selectedId);
+  
+  // If not found, try custom categories
+  if (!category && lobby.settings.customCategories) {
+    const custom = lobby.settings.customCategories.find((c) => c.id === selectedId);
+    if (custom) {
+      category = custom;
+    }
+  }
+  
+  // Fallback to first built-in category if nothing found
+  if (!category) {
+    category = CLUES.categories[0];
+  }
+  
   const board = pickRandom(category.boards);
   const clueBoard16 = board.clues16;
   const secretIndex = Math.floor(Math.random() * 16);
@@ -161,6 +191,7 @@ function startGameRound(lobby) {
     secretIndex,
     fraudIds: [...fraudIds],
     votesByVoterId: {},
+    voteToStartVoterIds: new Set(),
     lastVoteResult: null
   };
 
@@ -267,6 +298,7 @@ function createLobby({ lobbyName, passcode, settingsDefaults }) {
         secretIndex: null,
         fraudIds: [],
         votesByVoterId: {},
+        voteToStartVoterIds: new Set(),
         lastVoteResult: null
       }
     }

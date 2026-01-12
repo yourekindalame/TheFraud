@@ -15,9 +15,11 @@ export type PlayerPublic = {
 };
 
 export type LobbySettings = {
-  category: string;
+  categories: string[];
+  customCategories: Array<{ id: string; name: string; icon: string; boards: Array<{ name: string; clues16: string[] }> }>;
   imposterCount: number;
   randomizeImposterCount: boolean;
+  anonymousVoting: boolean;
   fraudNeverGoesFirst: boolean;
   timeLimitEnabled: boolean;
   timeLimitSeconds: number;
