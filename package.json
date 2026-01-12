@@ -1,0 +1,23 @@
+{
+  "name": "the-fraud",
+  "private": true,
+  "version": "0.1.0",
+  "description": "The Fraud - multiplayer deduction party game (server).",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "dev": "node server/src/index.js",
+    "start": "node server/src/index.js"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "nanoid": "^5.1.5",
+    "socket.io": "^4.8.1"
+  },
+  "devDependencies": {
+    "socket.io-client": "^4.8.3"
+  }
+}

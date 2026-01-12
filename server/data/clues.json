@@ -1,0 +1,32 @@
+{
+  "categories": [
+    {
+      "id": "classic",
+      "name": "Classic",
+      "icon": "🕵️",
+      "boards": [
+        {
+          "name": "Classic Board A",
+          "clues16": [
+            "apple",
+            "river",
+            "chair",
+            "planet",
+            "mirror",
+            "ticket",
+            "cloud",
+            "garden",
+            "pencil",
+            "castle",
+            "window",
+            "ocean",
+            "shadow",
+            "guitar",
+            "coffee",
+            "storm"
+          ]
+        }
+      ]
+    }
+  ]
+}
