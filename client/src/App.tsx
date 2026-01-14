@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { Link, Route, Routes, useNavigate } from "react-router-dom";
 import { getSocket } from "./lib/socket";
-import { getClientPlayerId, getPlayerName, setPlayerName as persistName } from "./lib/storage";
+import { getClientPlayerId, getPlayerName, getProfileImage, setPlayerName as persistName, setProfileImage } from "./lib/storage";
 import type { CategoryMeta, ChatMessage, LeaderboardEntry, LobbyState, LobbySummary } from "./lib/types";
 import { AppContext, type GameStartedPayload, type VoteStatePayload } from "./AppContext";
 import { RulesModal } from "./components/RulesModal";
@@ -18,6 +18,7 @@ export default function App() {
   const clientPlayerId = useMemo(() => getClientPlayerId(), []);
 
   const [playerName, setPlayerNameState] = useState<string | null>(() => getPlayerName());
+  const [profileImage, setProfileImageState] = useState<string | null>(() => getProfileImage());
   const [categories, setCategories] = useState<CategoryMeta[]>([]);
   const [lobbyList, setLobbyList] = useState<LobbySummary[]>([]);
   const [lobbyState, setLobbyState] = useState<LobbyState | null>(null);
@@ -29,6 +30,7 @@ export default function App() {
   const [rulesOpen, setRulesOpen] = useState(false);
   const [editNameOpen, setEditNameOpen] = useState(false);
   const [nameDraft, setNameDraft] = useState(playerName || "");
+  const [profileDropdownOpen, setProfileDropdownOpen] = useState(false);
 
   const store = { clientPlayerId, playerName, categories, lobbyList, lobbyState, gameStarted, voteState, chat, leaderboard, lastError };
   const actions = {
@@ -94,6 +96,19 @@ export default function App() {
     };
   }, [navigate, socket]);
 
+  // Close profile dropdown when clicking outside
+  useEffect(() => {
+    if (!profileDropdownOpen) return;
+    const handleClickOutside = (event: MouseEvent) => {
+      const target = event.target as HTMLElement;
+      if (!target.closest('[data-profile-dropdown]')) {
+        setProfileDropdownOpen(false);
+      }
+    };
+    document.addEventListener("click", handleClickOutside);
+    return () => document.removeEventListener("click", handleClickOutside);
+  }, [profileDropdownOpen]);
+
   const nameMissing = !playerName;
 
   return (
@@ -106,28 +121,137 @@ export default function App() {
           </Link>
 
           <div className="row">
-            {playerName ? (
-              <span className="pill">
-                <span className="muted">Welcome,</span> <strong>{playerName}</strong>
-                <button
-                  className="btn"
-                  style={{ padding: "6px 10px", borderRadius: 999 }}
-                  onClick={() => {
-                    setNameDraft(playerName);
-                    setEditNameOpen(true);
+            <div style={{ position: "relative" }} data-profile-dropdown>
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setProfileDropdownOpen(!profileDropdownOpen);
+                }}
+                style={{
+                  width: 40,
+                  height: 40,
+                  borderRadius: "50%",
+                  border: "2px solid var(--border)",
+                  background: profileImage ? "transparent" : "var(--accent)",
+                  cursor: "pointer",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  padding: 0,
+                  overflow: "hidden"
+                }}
+              >
+                {profileImage ? (
+                  <img
+                    src={profileImage}
+                    alt="Profile"
+                    style={{
+                      width: "100%",
+                      height: "100%",
+                      objectFit: "cover"
+                    }}
+                  />
+                ) : (
+                  <span style={{ color: "white", fontWeight: 700, fontSize: 18 }}>
+                    {playerName ? playerName.charAt(0).toUpperCase() : "?"}
+                  </span>
+                )}
+              </button>
+              {profileDropdownOpen && (
+                <div
+                  style={{
+                    position: "absolute",
+                    top: "100%",
+                    right: 0,
+                    marginTop: 8,
+                    background: "var(--panel)",
+                    border: "1px solid var(--border)",
+                    borderRadius: 8,
+                    boxShadow: "0 4px 12px rgba(0,0,0,0.3)",
+                    minWidth: 180,
+                    zIndex: 1000,
+                    padding: 8
                   }}
                 >
-                  Edit
-                </button>
-              </span>
-            ) : (
-              <span className="pill">
-                <span className="muted">Welcome</span>
-                <button className="btn" style={{ padding: "6px 10px", borderRadius: 999 }} onClick={() => setEditNameOpen(true)}>
-                  Set name
-                </button>
-              </span>
-            )}
+                  <button
+                    className="btn"
+                    style={{
+                      width: "100%",
+                      justifyContent: "flex-start",
+                      padding: "10px 16px",
+                      background: "transparent",
+                      border: "none",
+                      borderRadius: 6
+                    }}
+                    onClick={() => {
+                      setNameDraft(playerName || "");
+                      setEditNameOpen(true);
+                      setProfileDropdownOpen(false);
+                    }}
+                  >
+                    Change name
+                  </button>
+                  <label
+                    className="btn"
+                    style={{
+                      width: "100%",
+                      justifyContent: "flex-start",
+                      padding: "10px 16px",
+                      background: "transparent",
+                      border: "none",
+                      borderRadius: 6,
+                      cursor: "pointer",
+                      marginTop: 4
+                    }}
+                  >
+                    <input
+                      type="file"
+                      accept="image/*"
+                      style={{ display: "none" }}
+                      onChange={(e) => {
+                        const file = e.target.files?.[0];
+                        if (file) {
+                          const reader = new FileReader();
+                          reader.onload = (event) => {
+                            const dataUrl = event.target?.result as string;
+                            if (dataUrl) {
+                              setProfileImage(dataUrl);
+                              setProfileImageState(dataUrl);
+                            }
+                          };
+                          reader.readAsDataURL(file);
+                        }
+                        e.target.value = "";
+                        setProfileDropdownOpen(false);
+                      }}
+                    />
+                    Upload photo
+                  </label>
+                  {profileImage && (
+                    <button
+                      className="btn"
+                      style={{
+                        width: "100%",
+                        justifyContent: "flex-start",
+                        padding: "10px 16px",
+                        background: "transparent",
+                        border: "none",
+                        borderRadius: 6,
+                        color: "var(--danger, #ef4444)",
+                        marginTop: 4
+                      }}
+                      onClick={() => {
+                        setProfileImage(null);
+                        setProfileImageState(null);
+                        setProfileDropdownOpen(false);
+                      }}
+                    >
+                      Remove photo
+                    </button>
+                  )}
+                </div>
+              )}
+            </div>
 
             <button className="btn" onClick={() => setRulesOpen(true)}>
               Rules

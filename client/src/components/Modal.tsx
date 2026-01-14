@@ -13,8 +13,8 @@ export function Modal({
     <div className="modalBackdrop" role="dialog" aria-modal="true">
       <div className="modal">
         <div className="modalHeader">
-          <div style={{ fontWeight: 900 }}>{title}</div>
-          <button className="btn" onClick={onClose} aria-label="Close">
+          <h2 style={{ fontWeight: 900, margin: 0 }}>{title}</h2>
+          <button className="btn" onClick={onClose} aria-label="Close" style={{ padding: "8px 12px" }}>
             ✕
           </button>
         </div>

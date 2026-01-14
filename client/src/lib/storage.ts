@@ -1,6 +1,7 @@
 const KEY_NAME = "thefraud.playerName";
 const KEY_PLAYER_ID = "thefraud.clientPlayerId";
-const KEY_PASSCODE_PREFIX = "thefraud.passcode.";
+const KEY_LOBBY_CODE_PREFIX = "thefraud.lobbycode.";
+const KEY_PROFILE_IMAGE = "thefraud.profileImage";
 
 export function getPlayerName(): string | null {
   const v = localStorage.getItem(KEY_NAME);
@@ -11,6 +12,18 @@ export function setPlayerName(name: string) {
   localStorage.setItem(KEY_NAME, name.trim().slice(0, 24));
 }
 
+export function getProfileImage(): string | null {
+  return localStorage.getItem(KEY_PROFILE_IMAGE);
+}
+
+export function setProfileImage(imageDataUrl: string | null) {
+  if (imageDataUrl) {
+    localStorage.setItem(KEY_PROFILE_IMAGE, imageDataUrl);
+  } else {
+    localStorage.removeItem(KEY_PROFILE_IMAGE);
+  }
+}
+
 export function getClientPlayerId(): string {
   const existing = localStorage.getItem(KEY_PLAYER_ID);
   if (existing && existing.trim()) return existing;
@@ -19,12 +32,12 @@ export function getClientPlayerId(): string {
   return id;
 }
 
-export function setLobbyPasscode(lobbyId: string, passcode: string) {
-  sessionStorage.setItem(KEY_PASSCODE_PREFIX + lobbyId, passcode);
+export function setLobbyPasscode(lobbyId: string, lobbyCode: string) {
+  sessionStorage.setItem(KEY_LOBBY_CODE_PREFIX + lobbyId, lobbyCode);
 }
 
 export function getLobbyPasscode(lobbyId: string): string | null {
-  const v = sessionStorage.getItem(KEY_PASSCODE_PREFIX + lobbyId);
+  const v = sessionStorage.getItem(KEY_LOBBY_CODE_PREFIX + lobbyId);
   return v && v.trim() ? v : null;
 }
 

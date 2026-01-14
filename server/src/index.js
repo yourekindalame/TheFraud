@@ -70,7 +70,11 @@ const lobbies = new Map(); // lobbyId -> lobby
 const socketIndex = new Map(); // socketId -> membership
 
 function listLobbies() {
-  return [...lobbies.values()].map(publicLobbySummary).sort((a, b) => a.lobbyName.localeCompare(b.lobbyName));
+  // Only show public (non-private) lobbies in the list
+  return [...lobbies.values()]
+    .filter((l) => !l.isPrivate)
+    .map(publicLobbySummary)
+    .sort((a, b) => a.name.localeCompare(b.name));
 }
 
 function emitLobbyList(target) {
@@ -79,8 +83,12 @@ function emitLobbyList(target) {
   else io.emit("LOBBY_LIST", payload);
 }
 
-function emitLobbyState(lobby) {
-  io.to(lobby.lobbyId).emit("LOBBY_STATE", publicLobbyState(lobby));
+function emitLobbyState(lobby, requestingPlayerId) {
+  // Broadcast to all players, but each only gets their own clue
+  for (const p of lobby.players) {
+    if (!p.connected || !p.socketId) continue;
+    io.to(p.socketId).emit("LOBBY_STATE", publicLobbyState(lobby, p.id));
+  }
 }
 
 function emitHostChanged(lobby) {
@@ -114,7 +122,7 @@ function isHost(lobby, playerId) {
   return lobby.hostPlayerId && lobby.hostPlayerId === playerId;
 }
 
-function endRoundToLobby(lobby, reason, nextRoundInfo) {
+function startNextRound(lobby) {
   // Check if someone won (10 points)
   const leaderboard = getLeaderboard(lobby);
   const winner = leaderboard.find((p) => p.points >= 10);
@@ -134,12 +142,11 @@ function endRoundToLobby(lobby, reason, nextRoundInfo) {
       lastVoteResult: { reason: "game_won", winner: { playerId: winner.playerId, name: winner.name, points: winner.points } }
     };
     emitLobbyState(lobby);
-    io.to(lobby.lobbyId).emit("ROUND_ENDED", { lobbyId: lobby.lobbyId, nextRoundInfo: { gameWon: true, winner } });
     io.to(lobby.lobbyId).emit("SCORE_UPDATE", { lobbyId: lobby.lobbyId, leaderboard: getLeaderboard(lobby) });
     return;
   }
   
-  // Continue automatically - start new round
+  // Start new round
   const gs = startGameRound(lobby);
   
   // Broadcast per-player GAME_STARTED without leaking secret to frauds
@@ -161,6 +168,75 @@ function endRoundToLobby(lobby, reason, nextRoundInfo) {
   io.to(lobby.lobbyId).emit("SCORE_UPDATE", { lobbyId: lobby.lobbyId, leaderboard: getLeaderboard(lobby) });
 }
 
+function endRoundToLobby(lobby, reason, roundResults) {
+  // Store round results in gameState temporarily
+  const { voteCountsByTargetId } = computeVoteState(lobby);
+  const fraudIds = lobby.gameState.fraudIds || [];
+  const fraudNames = fraudIds.map((id) => {
+    const p = lobby.players.find((pl) => pl.id === id);
+    return p ? p.name : "Unknown";
+  });
+  const correctWord = lobby.gameState.clueBoard16?.[lobby.gameState.secretIndex] || "Unknown";
+  
+  // Determine majority vote
+  const entries = Object.entries(voteCountsByTargetId || {});
+  let majorityVote = false;
+  if (entries.length > 0) {
+    entries.sort((a, b) => b[1] - a[1]);
+    const topCount = entries[0][1];
+    const connectedCount = lobby.players.filter((p) => p.connected).length;
+    majorityVote = topCount > Math.floor(connectedCount / 2);
+  }
+  
+  // Determine eliminated player info
+  let eliminatedPlayerId = null;
+  let eliminatedPlayerName = null;
+  if (reason === "fraud_eliminated" || (roundResults && roundResults.eliminatedPlayerId)) {
+    eliminatedPlayerId = roundResults?.eliminatedPlayerId || null;
+    if (eliminatedPlayerId) {
+      const eliminated = lobby.players.find((p) => p.id === eliminatedPlayerId);
+      eliminatedPlayerName = eliminated ? eliminated.name : "Unknown";
+    }
+  }
+  
+  // Determine fraud guess info
+  let fraudGuessedCorrectly = null;
+  let fraudGuessWord = null;
+  if (reason === "fraud_guess_done" && roundResults) {
+    fraudGuessedCorrectly = roundResults.fraudGuessedCorrectly || false;
+    if (roundResults.fraudGuessIndex !== null && typeof roundResults.fraudGuessIndex === "number") {
+      fraudGuessWord = lobby.gameState.clueBoard16?.[roundResults.fraudGuessIndex] || null;
+    }
+  }
+  
+  const fraudWon = reason === "fraud_guess_done" && !roundResults?.fraudEliminated;
+  const fraudLost = reason === "fraud_eliminated";
+  
+  // Emit ROUND_ENDED with all results
+  io.to(lobby.lobbyId).emit("ROUND_ENDED", {
+    lobbyId: lobby.lobbyId,
+    results: {
+      fraudWon,
+      fraudLost,
+      majorityVote,
+      fraudIds,
+      fraudNames,
+      correctWord,
+      fraudGuessedCorrectly,
+      fraudGuessWord,
+      eliminatedPlayerId,
+      eliminatedPlayerName
+    }
+  });
+  
+  // Update scoreboard
+  io.to(lobby.lobbyId).emit("SCORE_UPDATE", { lobbyId: lobby.lobbyId, leaderboard: getLeaderboard(lobby) });
+  
+  // Change phase to show results screen (clients will handle showing modal)
+  lobby.gameState.phase = "round_results";
+  emitLobbyState(lobby);
+}
+
 function finishVoting(lobby, endedEarly) {
   const { eliminatedPlayerId, fraudEliminated } = resolveVoting(lobby);
   const scoring = applyScoringAfterVote(lobby, { eliminatedPlayerId, fraudEliminated });
@@ -178,14 +254,21 @@ function finishVoting(lobby, endedEarly) {
   });
   io.to(lobby.lobbyId).emit("SCORE_UPDATE", { lobbyId: lobby.lobbyId, leaderboard: getLeaderboard(lobby) });
 
-  if (fraudEliminated) {
-    endRoundToLobby(lobby, "fraud_eliminated", { fraudGuessedCorrectly: false });
-    return;
-  }
-
-  // Fraud survived: allow final guess.
+  // Fraud ALWAYS gets to guess after voting, regardless of voting outcome
   lobby.gameState.phase = "fraud_guess";
   emitLobbyState(lobby);
+  
+  // Emit FRAUD_GUESS_PROMPT only to Fraud players
+  for (const fraudId of fraudIds) {
+    const fraudPlayer = lobby.players.find((p) => p.id === fraudId);
+    if (fraudPlayer && fraudPlayer.connected && fraudPlayer.socketId) {
+      io.to(fraudPlayer.socketId).emit("FRAUD_GUESS_PROMPT", {
+        lobbyId: lobby.lobbyId,
+        category: lobby.gameState.categoryName,
+        clueBoard16: lobby.gameState.clueBoard16
+      });
+    }
+  }
 }
 
 function checkForGameEnd(lobby) {
@@ -235,41 +318,73 @@ io.on("connection", (socket) => {
 
   socket.on("LOBBY_CREATE", (payload, ack) => {
     try {
-      const { lobbyName, passcode, settingsDefaults } = payload || {};
-      const result = createLobby({ lobbyName, passcode, settingsDefaults });
+      const { lobbyName, isPrivate, settingsDefaults } = payload || {};
+      const result = createLobby({ lobbyName, isPrivate, settingsDefaults });
       if (!result.ok) {
         if (typeof ack === "function") ack({ ok: false, error: result.error });
         return;
       }
       lobbies.set(result.lobby.lobbyId, result.lobby);
       emitLobbyList();
-      if (typeof ack === "function") ack({ ok: true, lobbyId: result.lobby.lobbyId });
+      if (typeof ack === "function") ack({ ok: true, lobbyId: result.lobby.lobbyId, lobbyCode: result.lobby.lobbyCode });
     } catch {
       if (typeof ack === "function") ack({ ok: false, error: "Failed to create lobby." });
     }
   });
 
   socket.on("LOBBY_JOIN", (payload, ack) => {
-    const { lobbyId, passcode, playerName, clientPlayerId } = payload || {};
-    const lobby = lobbies.get(String(lobbyId || "").trim());
-    if (!lobby) {
-      const msg = "Lobby not found.";
-      emitError(socket, "LOBBY_NOT_FOUND", msg);
+    const { lobbyId, lobbyCode, playerName, clientPlayerId, profileImage } = payload || {};
+    let lobby = null;
+
+    // Two join methods:
+    // 1. Join by lobbyId (public lobby from list - no code required)
+    // 2. Join by lobbyCode (private lobby or direct code entry - requires code match)
+    
+    if (lobbyId) {
+      // Method 1: Join by ID (public lobby)
+      const requestedLobbyId = String(lobbyId || "").trim().toUpperCase();
+      lobby = lobbies.get(requestedLobbyId);
+      if (!lobby) {
+        const msg = "Lobby not found.";
+        emitError(socket, "LOBBY_NOT_FOUND", msg);
+        if (typeof ack === "function") ack({ ok: false, error: msg });
+        return;
+      }
+      // Public lobbies joined by ID don't require code check
+      // Private lobbies still require code even if ID is provided
+      if (lobby.isPrivate) {
+        const providedCode = String(lobbyCode || "").trim().toUpperCase();
+        if (providedCode !== lobby.lobbyCode.toUpperCase()) {
+          const msg = "Private lobby requires Lobby Code.";
+          emitError(socket, "BAD_LOBBY_CODE", msg);
+          if (typeof ack === "function") ack({ ok: false, error: msg });
+          return;
+        }
+      }
+    } else if (lobbyCode) {
+      // Method 2: Join by code (find lobby by matching code)
+      const providedCode = String(lobbyCode || "").trim().toUpperCase();
+      // Search all lobbies for matching code
+      for (const [id, l] of lobbies.entries()) {
+        if (l.lobbyCode.toUpperCase() === providedCode) {
+          lobby = l;
+          break;
+        }
+      }
+      if (!lobby) {
+        const msg = "Invalid Lobby Code.";
+        emitError(socket, "BAD_LOBBY_CODE", msg);
+        if (typeof ack === "function") ack({ ok: false, error: msg });
+        return;
+      }
+    } else {
+      const msg = "Lobby ID or Lobby Code required.";
+      emitError(socket, "BAD_JOIN", msg);
       if (typeof ack === "function") ack({ ok: false, error: msg });
       return;
     }
 
-    if (lobby.passcodeHash) {
-      const ok = bcrypt.compareSync(String(passcode || ""), lobby.passcodeHash);
-      if (!ok) {
-        const msg = "Invalid passcode.";
-        emitError(socket, "BAD_PASSCODE", msg);
-        if (typeof ack === "function") ack({ ok: false, error: msg });
-        return;
-      }
-    }
-
-    const added = addOrUpdatePlayer(lobby, { clientPlayerId, playerName, socketId: socket.id });
+    const added = addOrUpdatePlayer(lobby, { clientPlayerId, playerName, socketId: socket.id, profileImage });
     if (!added.ok) {
       emitError(socket, "BAD_JOIN", added.error);
       if (typeof ack === "function") ack({ ok: false, error: added.error });
@@ -289,7 +404,36 @@ io.on("connection", (socket) => {
     emitLobbyState(lobby);
     emitLobbyList();
 
-    if (typeof ack === "function") ack({ ok: true, lobbyId: lobby.lobbyId, hostPlayerId: lobby.hostPlayerId });
+    if (typeof ack === "function") ack({ ok: true, lobbyId: lobby.lobbyId, hostPlayerId: lobby.hostPlayerId, lobbyCode: lobby.lobbyCode });
+  });
+
+  socket.on("PROFILE_UPDATE", (payload, ack) => {
+    const ctx = requireMembership(socket);
+    if (!ctx) {
+      if (typeof ack === "function") ack({ ok: false, error: "Not in lobby." });
+      return;
+    }
+    const { lobby, membership } = ctx;
+    const { profileImage } = payload || {};
+    
+    // Validate and limit profile image size
+    let profileImageValue = null;
+    if (profileImage && typeof profileImage === "string") {
+      if (profileImage.length < 1000000) { // 1MB limit
+        profileImageValue = profileImage;
+      }
+    } else if (profileImage === null) {
+      profileImageValue = null; // Allow clearing profile image
+    }
+    
+    const player = lobby.players.find((p) => p.id === membership.playerId);
+    if (player) {
+      player.profileImage = profileImageValue;
+      emitLobbyState(lobby);
+      if (typeof ack === "function") ack({ ok: true });
+    } else {
+      if (typeof ack === "function") ack({ ok: false, error: "Player not found." });
+    }
   });
 
   socket.on("LOBBY_LEAVE", (_payload, ack) => {
@@ -408,6 +552,30 @@ io.on("connection", (socket) => {
       text: msg
     };
     io.to(lobby.lobbyId).emit("CHAT_MESSAGE", { lobbyId: lobby.lobbyId, messageObj });
+    if (typeof ack === "function") ack({ ok: true });
+  });
+
+  socket.on("CLUE_SUBMIT", (payload, ack) => {
+    const ctx = requireMembership(socket);
+    if (!ctx) return;
+    const { lobby, membership } = ctx;
+    if (lobby.gameState.phase !== "clues") {
+      emitError(socket, "NOT_CLUES_PHASE", "Clue submission is only allowed during clues phase.");
+      if (typeof ack === "function") ack({ ok: false, error: "Not in clues phase." });
+      return;
+    }
+    const clue = safeMessage(payload?.clue);
+    if (!clue) {
+      if (typeof ack === "function") ack({ ok: false, error: "Empty clue." });
+      return;
+    }
+    // Store clue for this player in this round
+    if (!lobby.gameState.cluesByPlayerId) {
+      lobby.gameState.cluesByPlayerId = {};
+    }
+    lobby.gameState.cluesByPlayerId[membership.playerId] = clue.trim();
+    // Broadcast updated state so player sees their saved clue
+    emitLobbyState(lobby);
     if (typeof ack === "function") ack({ ok: true });
   });
 
@@ -531,7 +699,28 @@ io.on("connection", (socket) => {
     const guessIndex = typeof rawGuessIndex === "number" ? rawGuessIndex : null;
 
     const { correct } = applyFraudGuess(lobby, guessIndex);
-    endRoundToLobby(lobby, "fraud_guess_done", { fraudGuessedCorrectly: correct });
+    
+    // Emit FRAUD_GUESS_RESULT to all players
+    io.to(lobby.lobbyId).emit("FRAUD_GUESS_RESULT", {
+      lobbyId: lobby.lobbyId,
+      isCorrect: correct,
+      guessIndex: guessIndex,
+      secretIndex: lobby.gameState.secretIndex
+    });
+    
+    // Update scoreboard
+    io.to(lobby.lobbyId).emit("SCORE_UPDATE", { lobbyId: lobby.lobbyId, leaderboard: getLeaderboard(lobby) });
+    
+    // Auto-start next round after 10 seconds
+    lobby.gameState.phase = "fraud_guess_result";
+    setTimeout(() => {
+      // Check if lobby still exists and is still in result phase
+      const currentLobby = lobbies.get(lobby.lobbyId);
+      if (currentLobby && currentLobby.gameState.phase === "fraud_guess_result") {
+        startNextRound(currentLobby);
+      }
+    }, 10000);
+    
     if (typeof ack === "function") ack({ ok: true, correct });
   });
 

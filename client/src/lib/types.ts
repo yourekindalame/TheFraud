@@ -1,7 +1,6 @@
 export type LobbySummary = {
-  lobbyId: string;
-  lobbyName: string;
-  locked: boolean;
+  id: string; // Internal lobby ID for joining public lobbies
+  name: string; // Human-friendly lobby name
   playerCount: number;
   inGame: boolean;
 };
@@ -12,6 +11,7 @@ export type PlayerPublic = {
   points: number;
   joinedAt: number;
   connected: boolean;
+  profileImage?: string | null;
 };
 
 export type LobbySettings = {
@@ -26,11 +26,18 @@ export type LobbySettings = {
 };
 
 export type LobbyState = {
-  lobbyId: string;
+  lobbyId: string; // Internal lobby ID
+  lobbyName: string; // Human-friendly name
+  lobbyCode: string; // Secret join code
   hostPlayerId: string | null;
   players: PlayerPublic[];
   settings: LobbySettings;
-  gameState?: { phase: "lobby" | "clues" | "voting" | "fraud_guess"; roundId: string | null; categoryName: string | null };
+  gameState?: {
+    phase: "lobby" | "clues" | "voting" | "fraud_guess";
+    roundId: string | null;
+    categoryName: string | null;
+    cluesByPlayerId?: Record<string, string>;
+  };
 };
 
 export type LeaderboardEntry = { playerId: string; name: string; points: number };

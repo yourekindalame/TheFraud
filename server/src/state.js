@@ -78,11 +78,11 @@ function defaultSettings() {
 
 function publicLobbySummary(lobby) {
   return {
-    lobbyId: lobby.lobbyId,
-    lobbyName: lobby.lobbyName,
-    locked: Boolean(lobby.passcodeHash),
+    id: lobby.lobbyId, // Internal ID for joining public lobbies
+    name: lobby.lobbyName, // Human-friendly name (display only)
     playerCount: lobby.players.length,
     inGame: lobby.gameState.phase !== "lobby"
+    // NOTE: lobbyCode is NOT included in public summary (it's secret)
   };
 }
 
@@ -92,20 +92,32 @@ function publicPlayer(p) {
     name: p.name,
     points: p.points,
     joinedAt: p.joinedAt,
-    connected: p.connected
+    connected: p.connected,
+    profileImage: p.profileImage || null
   };
 }
 
-function publicLobbyState(lobby) {
+function publicLobbyState(lobby, requestingPlayerId) {
+  const cluesByPlayerId = {};
+  const currentPhase = lobby.gameState?.phase || "lobby";
+  
+  // Show all clues during clues phase and voting/fraud_guess phases
+  if (lobby.gameState?.cluesByPlayerId) {
+    Object.assign(cluesByPlayerId, lobby.gameState.cluesByPlayerId);
+  }
+  
   return {
-    lobbyId: lobby.lobbyId,
+    lobbyId: lobby.lobbyId, // Internal ID
+    lobbyName: lobby.lobbyName, // Human-friendly name
+    lobbyCode: lobby.lobbyCode, // Secret join code (visible to players in lobby)
     hostPlayerId: lobby.hostPlayerId,
     players: lobby.players.map(publicPlayer).sort((a, b) => a.joinedAt - b.joinedAt),
     settings: lobby.settings,
     gameState: {
-      phase: lobby.gameState?.phase || "lobby",
+      phase: currentPhase,
       roundId: lobby.gameState?.roundId || null,
-      categoryName: lobby.gameState?.categoryName || null
+      categoryName: lobby.gameState?.categoryName || null,
+      cluesByPlayerId: Object.keys(cluesByPlayerId).length > 0 ? cluesByPlayerId : undefined
     }
   };
 }
@@ -192,7 +204,8 @@ function startGameRound(lobby) {
     fraudIds: [...fraudIds],
     votesByVoterId: {},
     voteToStartVoterIds: new Set(),
-    lastVoteResult: null
+    lastVoteResult: null,
+    cluesByPlayerId: {}
   };
 
   return lobby.gameState;
@@ -215,14 +228,16 @@ function resolveVoting(lobby) {
   const { voteCountsByTargetId } = computeVoteState(lobby);
   const entries = Object.entries(voteCountsByTargetId);
   if (entries.length === 0) {
-    return { eliminatedPlayerId: null, fraudEliminated: false };
+    return { eliminatedPlayerId: null, fraudEliminated: false, wasUnanimous: false };
   }
   entries.sort((a, b) => b[1] - a[1]);
   const topCount = entries[0][1];
   const tied = entries.filter(([, c]) => c === topCount).map(([id]) => id);
+  // Vote is unanimous if all votes went to one person (no ties)
+  const wasUnanimous = tied.length === 1;
   const eliminatedPlayerId = pickRandom(tied);
   const fraudEliminated = (lobby.gameState.fraudIds || []).includes(eliminatedPlayerId);
-  return { eliminatedPlayerId, fraudEliminated };
+  return { eliminatedPlayerId, fraudEliminated, wasUnanimous };
 }
 
 function applyScoringAfterVote(lobby, { eliminatedPlayerId, fraudEliminated }) {
@@ -270,22 +285,25 @@ function getLeaderboard(lobby) {
     .sort((a, b) => b.points - a.points || a.name.localeCompare(b.name));
 }
 
-function createLobby({ lobbyName, passcode, settingsDefaults }) {
+function createLobby({ lobbyName, isPrivate, settingsDefaults }) {
   const nameCheck = validateLobbyName(lobbyName);
   if (!nameCheck.ok) {
     return { ok: false, error: nameCheck.message };
   }
 
+  // Generate separate lobbyId (internal) and lobbyCode (join secret)
   const lobbyId = createLobbyId();
-  const passcodeHash = passcode ? bcrypt.hashSync(String(passcode), 10) : null;
+  const lobbyCode = createLobbyId(); // Separate 6-char code for joining
   const settings = { ...defaultSettings(), ...(settingsDefaults || {}) };
 
   return {
     ok: true,
     lobby: {
-      lobbyId,
-      lobbyName: nameCheck.value,
-      passcodeHash,
+      lobbyId, // Internal ID for routing/lookup
+      lobbyCode, // Secret 6-char code for joining (separate from ID)
+      lobbyName: nameCheck.value, // Human-friendly name from host
+      isPrivate: Boolean(isPrivate), // Private = not shown in public list
+      passcodeHash: null, // No longer used
       hostPlayerId: null,
       settings,
       players: [],
@@ -294,28 +312,41 @@ function createLobby({ lobbyName, passcode, settingsDefaults }) {
         roundId: null,
         categoryId: null,
         categoryName: null,
-        clueBoard16: null,
-        secretIndex: null,
-        fraudIds: [],
-        votesByVoterId: {},
-        voteToStartVoterIds: new Set(),
-        lastVoteResult: null
+      clueBoard16: null,
+      secretIndex: null,
+      fraudIds: [],
+      votesByVoterId: {},
+      voteToStartVoterIds: new Set(),
+      lastVoteResult: null,
+      cluesByPlayerId: {}
       }
     }
   };
 }
 
-function addOrUpdatePlayer(lobby, { clientPlayerId, playerName, socketId }) {
+function addOrUpdatePlayer(lobby, { clientPlayerId, playerName, socketId, profileImage }) {
   const id = String(clientPlayerId || "").trim();
   if (!id) return { ok: false, error: "Missing clientPlayerId." };
   const name = safeName(playerName);
   if (!name) return { ok: false, error: "Missing player name." };
+  
+  // Validate and limit profile image size (data URLs can be large)
+  let profileImageValue = null;
+  if (profileImage && typeof profileImage === "string") {
+    // Limit to 1MB (roughly 1,000,000 characters for base64)
+    if (profileImage.length < 1000000) {
+      profileImageValue = profileImage;
+    }
+  }
 
   const existing = lobby.players.find((p) => p.id === id);
   if (existing) {
     existing.name = name; // keep updated
     existing.socketId = socketId;
     existing.connected = true;
+    if (profileImageValue !== undefined) {
+      existing.profileImage = profileImageValue;
+    }
     return { ok: true, player: existing, isNew: false };
   }
 
@@ -325,7 +356,8 @@ function addOrUpdatePlayer(lobby, { clientPlayerId, playerName, socketId }) {
     points: 0,
     joinedAt: now(),
     connected: true,
-    socketId
+    socketId,
+    profileImage: profileImageValue
   };
   lobby.players.push(player);
   return { ok: true, player, isNew: true };
