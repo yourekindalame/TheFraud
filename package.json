@@ -1,0 +1,22 @@
+{
+  "name": "the-fraud",
+  "private": true,
+  "version": "0.1.0",
+  "description": "The Fraud - realtime multiplayer deduction game (Express + Socket.IO + React)",
+  "workspaces": [
+    "server",
+    "client"
+  ],
+  "scripts": {
+    "setup": "npm install",
+    "dev": "concurrently -n server,client -c cyan,magenta \"npm -w server run dev\" \"npm -w client run dev\"",
+    "build": "npm -w client run build && npm -w server run build",
+    "start": "npm -w server start",
+    "lint": "npm -w client run lint && npm -w server run lint",
+    "typecheck": "npm -w client run typecheck"
+  },
+  "devDependencies": {
+    "concurrently": "^9.2.1"
+  }
+}
+
